@@ -1,0 +1,11 @@
+{
+  "name": "git_flow",
+  "version": "1.0.0",
+  "main": ".dat/play.js",
+  "dependencies": {
+    "@gitbeaker/node": "^35.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.6"
+  }
+}
