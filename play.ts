@@ -20,7 +20,7 @@ const branchPrefixes = {
    hotfix: 'hotfix',
    release: 'release',
 };
-const VERSION = '0.3';
+const VERSION = '0.4';
 /***************************************** */
 export async function main(): Promise<number> {
    // =>load all default configs
@@ -48,18 +48,50 @@ async function init() {
    let path = await selectPath();
    // =>select type of branchadd
    let branchType = await INPUT.select('select a branch type', ['feature',
-      'release'], 'feature') as BranchType;
+      'release', 'hotfix'], 'feature') as BranchType;
    // =>create new branch by type
    switch (branchType) {
       case 'feature':
          return await createFeatureBranch(path);
       case 'release':
          return await createReleaseBranch(path);
+      case 'hotfix':
+         return await createHotfixBranch(path);
       default:
          break;
    }
    return true;
 }
+/***************************************** */
+async function close() {
+   // =>get path
+   let path = await selectPath();
+   // =>get current branch name
+   let res1 = await OS.exec(`git rev-parse --abbrev-ref HEAD`, path.path);
+   // console.log(res1)
+   if (res1.code !== 0) return false;
+   let branchName = String(res1.stdout);
+   // =>detect type by current branch prefix
+   let type: BranchType;
+   if (branchName.startsWith(branchPrefixes.feature + '_')) {
+      type = 'feature';
+      return await closeFeatureBranch(branchName, path);
+   }
+   if (branchName.startsWith(branchPrefixes.release + '_')) {
+      type = 'release';
+      return await closeReleaseBranch(branchName, path);
+   }
+   else if (branchName.startsWith(branchPrefixes.hotfix + '_')) {
+      type = 'hotfix';
+      return await closeHotfixBranch(branchName, path);
+   } else {
+      LOG.error(`can not detect type of branch '${branchName}'`);
+      return false;
+   }
+   return true;
+}
+/***************************************** */
+/***************************************** */
 /***************************************** */
 async function createFeatureBranch(path: PathInfo) {
    // =>get new feature name
@@ -96,36 +128,23 @@ async function createReleaseBranch(path: PathInfo) {
 
 }
 /***************************************** */
-async function close() {
-   // =>get path
-   let path = await selectPath();
-   // =>get current branch name
-   let res1 = await OS.exec(`git rev-parse --abbrev-ref HEAD`, path.path);
-   // console.log(res1)
-   if (res1.code !== 0) return false;
-   let branchName = String(res1.stdout);
-   // =>detect type by current branch prefix
-   let type: BranchType;
-   if (branchName.startsWith(branchPrefixes.feature + '_')) {
-      type = 'feature';
-      return await closeFeatureBranch(branchName, path);
-   }
-   if (branchName.startsWith(branchPrefixes.release + '_')) {
-      type = 'release';
-      return await closeReleaseBranch(branchName, path);
-   }
-   else if (branchName.startsWith(branchPrefixes.hotfix + '_')) {
-      type = 'hotfix';
-      //TODO:
-   } else {
-      LOG.error(`can not detect type of branch '${branchName}'`);
-      return false;
-   }
-   return true;
+async function createHotfixBranch(path: PathInfo) {
+   // =>get new version tag
+   let tag = await INPUT.input('Enter new version hotfix (default "0.1.1")', '0.1.1');
+   // =>checkout to master branch
+   let res1 = await OS.shell(`git checkout ${path.masterBranch}`, path.path);
+   if (res1 !== 0) return false;
+   // =>update master branch
+   // LOG.log(`git pull ${path.remoteName} ${path.devBranch}`)
+   let res2 = await OS.shell(`git pull ${path.remoteName} ${path.masterBranch}`, path.path);
+   if (res2 !== 0) return false;
+   // console.log('res1', res1)
+   // =>create new hotfix branch
+   let res3 = await OS.shell(`git checkout -b ${branchPrefixes.hotfix}_${tag}`, path.path);
+   if (res3 !== 0) return false;
+   LOG.success(`created '${branchPrefixes.hotfix}_${tag}' branch successfully`);
+
 }
-/***************************************** */
-/***************************************** */
-/***************************************** */
 /***************************************** */
 async function closeFeatureBranch(branchName: string, path: PathInfo) {
    let commands = [
@@ -166,17 +185,52 @@ async function closeReleaseBranch(branchName: string, path: PathInfo) {
       `git tag -a v${tag}  -m "New release for v${tag}"`,
       // =>push current branch
       `git push ${path.remoteName} ${branchName}`,
+      // =>push tags
+      `git push ${path.remoteName} --tags`,
    ];
    for (const com of commands) {
       let res1 = await OS.shell(com, path.path);
       if (res1 !== 0) return false;
    }
    LOG.success(`pushed '${branchName}' branch successfully`);
-   // =>create merge request
+   // =>create merge request on master
    await mergeRequest(path, branchName, path.masterBranch);
-   // =>if has project id
+   // =>create merge request on dev
+   await mergeRequest(path, branchName, path.devBranch);
    return true;
 }
+/***************************************** */
+async function closeHotfixBranch(branchName: string, path: PathInfo) {
+   // =>get hotfix tag value
+   let tag = branchName.replace(branchPrefixes.hotfix + '_', '');
+   let commands = [
+      // =>checkout to master branch
+      `git checkout ${path.masterBranch}`,
+      // =>update master branch
+      `git pull ${path.remoteName} ${path.masterBranch}`,
+      // =>checkout to current branch
+      `git checkout ${branchName}`,
+      // =>merge master branch to current branch
+      `git merge ${path.masterBranch}`,
+      // =>tag on branch
+      `git tag -a v${tag}  -m "new hotfix for v${tag}"`,
+      // =>push current branch
+      `git push ${path.remoteName} ${branchName}`,
+      // =>push tags
+      `git push ${path.remoteName} --tags`,
+   ];
+   for (const com of commands) {
+      let res1 = await OS.shell(com, path.path);
+      if (res1 !== 0) return false;
+   }
+   LOG.success(`pushed '${branchName}' branch successfully`);
+   // =>create merge request on master
+   await mergeRequest(path, branchName, path.masterBranch);
+   // =>create merge request on dev
+   await mergeRequest(path, branchName, path.devBranch);
+   return true;
+}
+/***************************************** */
 /***************************************** */
 async function mergeRequest(path: PathInfo, sourceBranch: string, targetBranch: string) {
    // =>if has project id
