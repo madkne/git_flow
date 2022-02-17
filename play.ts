@@ -18,8 +18,9 @@ interface PathInfo {
 const branchPrefixes = {
    feature: 'feature',
    hotfix: 'hotfix',
+   release: 'release',
 };
-const VERSION = '0.2';
+const VERSION = '0.3';
 /***************************************** */
 export async function main(): Promise<number> {
    // =>load all default configs
@@ -47,13 +48,13 @@ async function init() {
    let path = await selectPath();
    // =>select type of branchadd
    let branchType = await INPUT.select('select a branch type', ['feature',
-      'hotfix'], 'feature') as BranchType;
+      'release'], 'feature') as BranchType;
    // =>create new branch by type
    switch (branchType) {
       case 'feature':
          return await createFeatureBranch(path);
-         break;
-      //TODO:
+      case 'release':
+         return await createReleaseBranch(path);
       default:
          break;
    }
@@ -77,6 +78,24 @@ async function createFeatureBranch(path: PathInfo) {
    LOG.success(`created '${branchPrefixes.feature}_${name}' branch successfully`);
 }
 /***************************************** */
+async function createReleaseBranch(path: PathInfo) {
+   // =>get new version tag
+   let tag = await INPUT.input('Enter new version tag (default "0.1.0")', '0.1.0');
+   // =>checkout to dev branch
+   let res1 = await OS.shell(`git checkout ${path.devBranch}`, path.path);
+   if (res1 !== 0) return false;
+   // =>update dev branch
+   // LOG.log(`git pull ${path.remoteName} ${path.devBranch}`)
+   let res2 = await OS.shell(`git pull ${path.remoteName} ${path.devBranch}`, path.path);
+   if (res2 !== 0) return false;
+   // console.log('res1', res1)
+   // =>create new release branch
+   let res3 = await OS.shell(`git checkout -b ${branchPrefixes.release}_${tag}`, path.path);
+   if (res3 !== 0) return false;
+   LOG.success(`created '${branchPrefixes.release}_${tag}' branch successfully`);
+
+}
+/***************************************** */
 async function close() {
    // =>get path
    let path = await selectPath();
@@ -91,6 +110,10 @@ async function close() {
       type = 'feature';
       return await closeFeatureBranch(branchName, path);
    }
+   if (branchName.startsWith(branchPrefixes.release + '_')) {
+      type = 'release';
+      return await closeReleaseBranch(branchName, path);
+   }
    else if (branchName.startsWith(branchPrefixes.hotfix + '_')) {
       type = 'hotfix';
       //TODO:
@@ -100,6 +123,9 @@ async function close() {
    }
    return true;
 }
+/***************************************** */
+/***************************************** */
+/***************************************** */
 /***************************************** */
 async function closeFeatureBranch(branchName: string, path: PathInfo) {
    let commands = [
@@ -119,20 +145,52 @@ async function closeFeatureBranch(branchName: string, path: PathInfo) {
       if (res1 !== 0) return false;
    }
    LOG.success(`pushed '${branchName}' branch successfully`);
-   // =>if has project id
-   if (path.gitlabProjectId) {
-      let api = await getGitlabInstance();
-      let res2 = await api.MergeRequests.create(path.gitlabProjectId, branchName, path.devBranch, `merge ${branchName} to ${path.devBranch} branch`);
-      if (res2.created_at) {
-         LOG.success(`created merge request from '${branchName}' to '${path.devBranch}' branch`);
-      }
-   } else {
-      LOG.info(`Now you can create merge request from '${branchName}' to '${path.devBranch}' branch`);
-   }
+   // =>create merge request
+   await mergeRequest(path, branchName, path.devBranch);
    return true;
 }
 /***************************************** */
+async function closeReleaseBranch(branchName: string, path: PathInfo) {
+   // =>get release tag value
+   let tag = branchName.replace(branchPrefixes.release + '_', '');
+   let commands = [
+      // =>checkout to master branch
+      `git checkout ${path.masterBranch}`,
+      // =>update master branch
+      `git pull ${path.remoteName} ${path.masterBranch}`,
+      // =>checkout to current branch
+      `git checkout ${branchName}`,
+      // =>merge master branch to current branch
+      `git merge ${path.masterBranch}`,
+      // =>tag on branch
+      `git tag -a v${tag}  -m "New release for v${tag}"`,
+      // =>push current branch
+      `git push ${path.remoteName} ${branchName}`,
+   ];
+   for (const com of commands) {
+      let res1 = await OS.shell(com, path.path);
+      if (res1 !== 0) return false;
+   }
+   LOG.success(`pushed '${branchName}' branch successfully`);
+   // =>create merge request
+   await mergeRequest(path, branchName, path.masterBranch);
+   // =>if has project id
+   return true;
+}
 /***************************************** */
+async function mergeRequest(path: PathInfo, sourceBranch: string, targetBranch: string) {
+   // =>if has project id
+   if (path.gitlabProjectId) {
+      let api = await getGitlabInstance();
+      let res2 = await api.MergeRequests.create(path.gitlabProjectId, sourceBranch, targetBranch, `merge ${sourceBranch} to ${targetBranch} branch`);
+      if (res2.created_at) {
+         LOG.success(`created merge request from '${sourceBranch}' to '${targetBranch}' branch`);
+      }
+      // api.NotificationSettings.
+   } else {
+      LOG.info(`Now you can create merge request from '${sourceBranch}' to '${targetBranch}' branch`);
+   }
+}
 /***************************************** */
 async function selectPath() {
    let addNewPath = 'add_path';
@@ -156,21 +214,30 @@ async function selectPath() {
    let pathName = await INPUT.select('select a saved path or add new path', options, lastPath ? lastPath : addNewPath);
    // =>if want to add new path
    if (pathName === addNewPath) {
-      let api = await getGitlabInstance();
       let projectName = pathName = await INPUT.input('Enter name of your new project');
       let projectPath = await INPUT.input('Enter path of your new project');
       let projectDevBranch = await INPUT.input('Enter dev branch name of your new project (default "dev")', 'dev');
       let projectMasterBranch = await INPUT.input('Enter master branch name of your new project (default "master")', 'master');
       let projectRemoteName = await INPUT.input('Enter remote name of your new project (default "origin")', 'origin');
-      let findProjects = await api.Projects.search(projectName);
       // console.log(findProjects)
-      let gitlabProjects = findProjects.map(i => {
-         return {
-            text: i.name,
-            value: String(i.id),
-         };
-      });
-      let gitlabProjectId = await INPUT.select('Select gitlab project', gitlabProjects);
+      let gitlabProjectId;
+      // =>select gitlab project, if exist
+      if (await config('gitlab_access_token')) {
+         let api = await getGitlabInstance();
+         let findProjects = await api.Projects.search(projectName);
+         let gitlabProjects = findProjects.map(i => {
+            return {
+               text: i.name,
+               value: String(i.id),
+            };
+         });
+         // =>add not project
+         gitlabProjects.push({
+            text: 'Not Selected Project',
+            value: "0",
+         })
+         gitlabProjectId = await INPUT.select('Select gitlab project', gitlabProjects);
+      }
       // =>save new path
       savedPaths.push({
          name: projectName,
