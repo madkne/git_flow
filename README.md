@@ -1,24 +1,48 @@
-# git_flow Play Script
+# git flow - version 1.1
 
-## Install & Use
-- install node 12 or higher version
-- install DAT by `npm install -g dat-tool`
-- go to `git_flow` folder
-- type `npm install` to install node types
-- then, type `dat m `, if you want to develop script
-- And for use git_flow script, type `dat play` or just `dat p`
+manage your project with git flow script and integration with gitlab, redmine
 
-## Debug Play Script
+## get started
 
-For debugging play script, you must install `source-map-support` package by type `dat npm -n source-map-support`
+- install `dat-tool` with `npm i -g dat-tool`
+- create `.env` file from `.env.sample` file
+- install dependencies with `npm i`
+- create new branch:
+    - command `dat p i`
+    - create new path (enter your project path, enable integration tools)
+    - select your branch type
+    - and finally, enter your branch name
 
-## Install Node.js 12
+## help
 
-### Ubuntu / Debian / Linux Mint
-- sudo apt update
-- sudo apt -y install curl dirmngr apt-transport-https lsb-release ca-certificates
-- curl -sL https://deb.nodesource.com/setup_12.x | sudo -E bash -
-- sudo apt -y install nodejs
+you can enter `dat p` or `dat p [command] -h` for help commands
+## redmine integration
 
-## Authors
-git_flow was built by DAT 0.5.3
+
+#### config
+- first of all, you have to check if the REST API is enabled in the admin settings panel. (go to Administration/settings/API)
+- then get api key ( from my account/API access key) 
+- add api key in `.env` file
+
+#### usage
+
+- used for auto redmine log times on commits
+
+## gitlab integration
+
+
+#### config
+- In the top-right corner, select your avatar.
+- Select Edit profile.
+- On the left sidebar, select Access Tokens.
+- Enter a name and optional expiry date for the token.
+- Select Create personal access token.
+- after that, save your access token on `.env` file
+
+#### usage
+
+- used for auto merge requests on branch close
+
+## Author
+
+developed by madkne, thanks for DAT tool!

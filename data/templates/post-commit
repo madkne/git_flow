@@ -1,0 +1,11 @@
+#!/bin/bash
+
+function echo_output() {
+    OUT="${@//[$'\r']/\r}"
+    echo $OUT
+}
+commit_multi_message=`git show --no-patch --format=%B`
+commit_message=$(echo_output "$commit_multi_message")
+branch=$(git branch --show-current)
+
+node {{dataPath}}/{{fileName}}-post-commit.js "$commit_message" "$branch" "{{param1}}" "{{param2}}" "{{param3}}"
