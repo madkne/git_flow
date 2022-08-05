@@ -10,12 +10,15 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as ENV from '@dat/lib/env';
 import { BehaviorSubject } from 'rxjs';
+import { RedmineApi } from '../redmine';
 
 @cliCommandItem()
 export class InitCommand extends CliCommand<CommandName, CommandArgvName> implements OnImplement {
     redmineIssueId: number;
     path: PathInfo;
     command = new BehaviorSubject<string>(undefined);
+    branchType: BranchType;
+    issue: {};
 
 
     get name(): CommandName {
@@ -59,14 +62,14 @@ export class InitCommand extends CliCommand<CommandName, CommandArgvName> implem
         // =>get path
         this.path = await selectPath();
         // =>select type of branch
-        let branchType = await INPUT.select('select a branch type', ['feature',
+        this.branchType = await INPUT.select('select a branch type', ['feature',
             'release', 'hotfix'], 'feature') as BranchType;
         // =>integration with redmine
         if (this.path.integrations.find(i => i == 'redmine')) {
             await this.setupRedmine();
         }
         // =>create new branch by type
-        switch (branchType) {
+        switch (this.branchType) {
             case 'feature':
                 return await this.createFeatureBranch();
             case 'release':
@@ -99,7 +102,7 @@ export class InitCommand extends CliCommand<CommandName, CommandArgvName> implem
     /***************************************** */
     async createBranch(parentBranch: string, newBranch: string) {
         // =>integration with redmine
-        if (this.path.integrations.find(i => i == 'redmine')) {
+        if (this.path.integrations.find(i => i == 'redmine') && this.redmineIssueId) {
             newBranch = `${newBranch}#${this.redmineIssueId}`;
             // =>add post-commit hook to project git
             let res0 = await TEM.saveRenderFile(path.join(await OS.cwd(), 'data', 'templates', 'post-commit'), path.join(this.path.path, '.git', 'hooks'), {
@@ -114,8 +117,8 @@ export class InitCommand extends CliCommand<CommandName, CommandArgvName> implem
             this.command.next(`chmod +x .git/hooks/post-commit`);
             await OS.shell(this.command.getValue(), this.path.path);
             // =>select a activity
-            let activities = await this.getRedmineActivities();
-            let activityId = await INPUT.select('select an activity (for use log times)', activities.map(i => {
+            let activities = await RedmineApi.getRedmineActivities();
+            let activityId = await INPUT.select('(redmine) select an activity (for use log times)', activities.map(i => {
                 return {
                     text: i.name,
                     value: String(i.id),
@@ -129,6 +132,7 @@ export class InitCommand extends CliCommand<CommandName, CommandArgvName> implem
             }
             redmineIssues.push({
                 issueId: this.redmineIssueId,
+                statusId: Number(this.issue['status']['id']),
                 pathName: this.path.name,
                 lastTimeLog: new Date().getTime(),
                 branchName: newBranch,
@@ -155,22 +159,35 @@ export class InitCommand extends CliCommand<CommandName, CommandArgvName> implem
     }
     /***************************************** */
     async setupRedmine() {
-        this.redmineIssueId = Number(await INPUT.input('Enter issue id (redmine)'));
+        this.redmineIssueId = Number(await INPUT.input('(redmine) Enter issue id (0 for cancel integration)'));
+        if (!this.redmineIssueId) this.redmineIssueId = 0;
         if (isNaN(this.redmineIssueId)) {
             throw new Error("issue id must be number");
-
+        }
+        if (this.redmineIssueId) {
+            try {
+                let issues = await RedmineApi.getIssuesInfo([this.redmineIssueId]);
+                this.issue = issues[0];
+                // console.log(issue.length)
+                LOG.info(`issue '${this.redmineIssueId}' info:\n\t[${issues[0].tracker.name}] ${issues[0].subject} (${issues[0].status.name} status)`);
+            } catch (e) {
+                LOG.warning(`not found any issues with id '${this.redmineIssueId}'!`);
+                this.redmineIssueId = 0;
+            }
+            // =>get current user info
+            let user = await RedmineApi.currentUser();
+            // =>ask questions
+            let assignToYou = await INPUT.boolean('(redmine) Assignee issue to you', true);
+            let estimateTime = Number(await INPUT.input('(redmine) Estimate time for issue (hours)'));
+            let defaultNote = `I doing this issue at branch type '${this.branchType}'.`;
+            let notes = await INPUT.input(`(redmine) Enter a note (default: ${defaultNote})`, defaultNote);
+            let issueUpdate = {};
+            if (assignToYou) issueUpdate['assigned_to_id'] = user.id;
+            if (!isNaN(estimateTime) && estimateTime) issueUpdate['estimated_hours'] = estimateTime;
+            issueUpdate['notes'] = notes;
+            // =>update issue
+            await RedmineApi.updateIssue(this.redmineIssueId, issueUpdate);
         }
     }
-    /***************************************** */
-    async getRedmineActivities() {
-        let res = await NET.request<{ time_entry_activities: { id: number, name: string }[] }>({
-            url: process.env.redmine_hostname + '/enumerations/time_entry_activities.json',
-            headers: {
-                // 'X-Redmine-API-Key': process.env.redmine_api_key,
-            }
-        });
-        // console.log(res.data.time_entry_activities)
-        return res.data.time_entry_activities;
 
-    }
 }

@@ -1,4 +1,4 @@
-# git flow - version 1.1
+# git flow - version 1.3
 
 manage your project with git flow script and integration with gitlab, redmine
 
@@ -27,6 +27,8 @@ you can enter `dat p` or `dat p [command] -h` for help commands
 #### usage
 
 - used for auto redmine log times on commits
+- used for update issue on init branch
+- used for update issue status on close branch
 
 ## gitlab integration
 

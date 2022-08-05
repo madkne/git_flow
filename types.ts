@@ -10,7 +10,7 @@ export interface PathInfo {
     // =>gitlab
     gitlabProjectId?: number;
     // =>redmine
-    redmineProjectName?: string;
+    // redmineProjectName?: string;
     // redmineUsername?: string;
     // redminePassword?: string;
 }
@@ -22,6 +22,7 @@ export type IntegrationType = 'gitlab' | 'redmine';
 export interface RedmineIssue {
     pathName: string;
     issueId: number;
+    statusId: number;
     branchName: string;
     activityId: number;
     lastCommit?: string;

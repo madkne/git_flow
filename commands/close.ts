@@ -1,18 +1,20 @@
 import { CommandArgvItem, CliCommand, OnImplement, cliCommandItem } from '@dat/lib/argvs';
-import { branchPrefixes, BranchSplitter, getGitlabInstance, selectPath } from '../common';
-import { BranchType, CommandArgvName, CommandName, PathInfo } from '../types';
+import { branchPrefixes, BranchSplitter, config, getGitlabInstance, selectPath } from '../common';
+import { BranchType, CommandArgvName, CommandName, PathInfo, RedmineIssue } from '../types';
 import * as INPUT from '@dat/lib/input';
 import * as LOG from "@dat/lib/log";
 import * as OS from '@dat/lib/os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BehaviorSubject, Subject } from 'rxjs';
+import { RedmineApi } from '../redmine';
 
 @cliCommandItem()
 export class CloseCommand extends CliCommand<CommandName, CommandArgvName> implements OnImplement {
     path: PathInfo;
     branchName: string;
     command = new BehaviorSubject<string>(undefined);
+    issue: RedmineIssue;
 
     get name(): CommandName {
         return 'close';
@@ -33,6 +35,7 @@ export class CloseCommand extends CliCommand<CommandName, CommandArgvName> imple
             LOG.warning(it);
         });
     }
+    /***************************************** */
 
     get argvs(): CommandArgvItem<CommandArgvName>[] {
         return [
@@ -48,6 +51,7 @@ export class CloseCommand extends CliCommand<CommandName, CommandArgvName> imple
             }
         ]
     }
+    /***************************************** */
 
     async implement(): Promise<boolean> {
         // =>get path
@@ -58,8 +62,11 @@ export class CloseCommand extends CliCommand<CommandName, CommandArgvName> imple
         // console.log(res1)
         if (res1.code !== 0) return false;
         this.branchName = String(res1.stdout);
+        // =>find issue by branch name
+        this.issue = (await config<RedmineIssue[]>('redmine_issues', [])).find(i => i.branchName === this.branchName);
+        // console.log('issue:', this.issue)
         // =>integration with redmine
-        if (this.path.integrations.find(i => i == 'redmine')) {
+        if (this.path.integrations.find(i => i == 'redmine') && this.issue) {
             // =>remove post-commit hook
             if (fs.existsSync(path.join(this.path.path, '.git', 'hooks', 'post-commit'))) {
                 fs.unlinkSync(path.join(this.path.path, '.git', 'hooks', 'post-commit'));
@@ -85,6 +92,7 @@ export class CloseCommand extends CliCommand<CommandName, CommandArgvName> imple
         return true;
 
     }
+    /***************************************** */
 
     async closeFeatureBranch() {
         let commands = [
@@ -159,6 +167,19 @@ export class CloseCommand extends CliCommand<CommandName, CommandArgvName> imple
             LOG.success(`pushed '${this.branchName}' branch successfully`);
         } else {
             LOG.success(`closed '${this.branchName}' branch successfully`);
+        }
+        // =>integration with redmine
+        if (this.path.integrations.find(i => i == 'redmine') && this.issue) {
+            // =>get all statuses
+            let statuses = await RedmineApi.getRedmineStatuses();
+            let targetStatus = await INPUT.select('(redmine) Update issue status', statuses.map(i => {
+                return {
+                    text: i.name,
+                    value: String(i.id),
+                };
+            }));
+            // =>update issue
+            await RedmineApi.updateIssue(this.issue.issueId, { status_id: Number(targetStatus) });
         }
         // =>create merge request on master
         if (mergeRequestOnMaster) {

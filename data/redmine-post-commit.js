@@ -7,19 +7,31 @@ let branch = process.argv[3];
 let issueId = process.argv[4];
 let redmineHostName = process.argv[5];
 let apiKey = process.argv[6];
-// =>update commit message
-commitMessage += ` (branch: ${branch})`;
-// =>read .dat/.env file
-const envFile = JSON.parse(fs.readFileSync('../.dat/.env').toString());
-// =>find target issue struct
-let issue = envFile['redmine_issues'].find(i => i.issueId == Number(issueId));
-if (!issue) log('not found issue!');
-// =>calc time log
-let timeLogPeriod = Number(((new Date().getTime() - issue.lastTimeLog) / (1000 * 60)).toFixed(1)); //minutes
-if (timeLogPeriod < 1) {
-    process.exit(0);
-}
-else {
+
+let resMain = main();
+if (!resMain) process.exit(1);
+/************************************************* */
+function main() {
+    // =>update commit message
+    commitMessage += ` (branch: ${branch})`;
+    // =>read .dat/.env file
+    const envFile = JSON.parse(fs.readFileSync('../.dat/.env').toString());
+    // =>find target issue struct
+    let issue = envFile['redmine_issues'].find(i => i.issueId == Number(issueId));
+    if (!issue) {
+        log('not found issue!');
+        return false;
+    }
+    // =>check match branch
+    if (branch !== issue.branchName) {
+        log(`current branch no match with '${issue.branchName}'!`);
+        return false;
+    }
+    // =>calc time log
+    let timeLogPeriod = Number(((new Date().getTime() - issue.lastTimeLog) / (1000 * 60)).toFixed(1)); //minutes
+    if (timeLogPeriod < 1) {
+        return true;
+    }
     log(`your time spend for this commit was: ${timeLogPeriod}m`);
     // =>set log time on redmine
     // Set up the request
@@ -39,7 +51,7 @@ else {
         host: redmineUrl.hostname,
         port: redmineUrl.port,
         protocol: redmineUrl.protocol,
-        path: '/time_entries.xml',
+        path: '/time_entries.json',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -70,7 +82,11 @@ else {
     post_req.write(post_data);
     post_req.end();
     // =>update issue struct
-    //TODO:
+    let issueIndex = envFile['redmine_issues'].findIndex(i => i.issueId == Number(issueId));
+    envFile['redmine_issues'][issueIndex].lastTimeLog = new Date().getTime();
+    envFile['redmine_issues'][issueIndex].lastCommit = commitMessage;
+    fs.writeFileSync('../.dat/.env', JSON.stringify(envFile));
+    return true;
 }
 
 /************************************************* */

@@ -7,7 +7,7 @@ import { CloseCommand } from "./commands/close";
 
 
 
-const VERSION = '1.1';
+const VERSION = '1.3';
 /***************************************** */
 export async function main(): Promise<number> {
    // =>load all default configs

@@ -81,7 +81,7 @@ async function addNewPath() {
     // =>use redmine
     if (await INPUT.boolean('Are you use redmine integration?')) {
         integrations.push('redmine');
-        newPath.redmineProjectName = await INPUT.input('Enter name of your project in redmine', projectName);
+        // newPath.redmineProjectName = await INPUT.input('Enter name of your project in redmine', projectName);
         // newPath.redmineUsername = await INPUT.input('Enter your username in redmine');
         // newPath.redminePassword = await INPUT.password('Enter your password in redmine');
     }
